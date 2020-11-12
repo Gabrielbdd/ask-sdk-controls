@@ -36,6 +36,10 @@ export namespace Strings {
         GoBack = 'builtin_goBack',
         Complete = 'builtin_complete',
         None = 'builtin_none',
+        Add = 'builtin_add',
+        Remove = 'builtin_remove',
+        Delete = 'builtin_delete',
+        Ignore = 'builtin_ignore',
     }
 
     /**
