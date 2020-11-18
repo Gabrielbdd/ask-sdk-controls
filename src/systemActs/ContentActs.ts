@@ -20,7 +20,10 @@ import {
     ProblematicInputValuePayload,
     ValueAddedPayload,
     ValueChangedPayload,
+<<<<<<< HEAD
     ValueClearedPayload,
+=======
+>>>>>>> 993ce8d... wip: feat to remove/delete/ignore items from state
     ValueRemovedPayload,
     ValueSetPayload,
 } from './PayloadTypes';
