@@ -22,6 +22,7 @@ import {
     RequestRemovedValueByListActPayload,
     RequestValueByListPayload,
     RequestValuePayload,
+    SuggestActionPayload,
     ValueSetPayload,
 } from './PayloadTypes';
 import { SystemAct } from './SystemAct';
@@ -298,6 +299,25 @@ export class SuggestValueAct<T> extends InitiativeAct {
         // TODO: bug: change the message to i18n
         controlResponseBuilder.addPromptFragment(`Did you perhaps mean ${this.payload.value}?`);
         controlResponseBuilder.addRepromptFragment(`Did you perhaps mean ${this.payload.value}?`);
+    }
+}
+
+export class SuggestActionAct<T> extends InitiativeAct {
+    payload: SuggestActionPayload<T>;
+
+    constructor(control: Control, payload?: SuggestActionPayload<T>) {
+        super(control);
+        this.payload = payload ?? {};
+    }
+    render(input: ControlInput, controlResponseBuilder: ControlResponseBuilder): void {
+        if (this.payload.renderedTarget !== undefined) {
+            controlResponseBuilder.addPromptFragment('You can add or update values.');
+        } else {
+            throw new Error(
+                `Cannot directly render SuggestActionAct as payload.renderedTarget is undefined. ${this.toString()}. ` +
+                    `Either provide a renderedTarget when creating the act, or render the act in control.render() or controlManager.render()`,
+            );
+        }
     }
 }
 

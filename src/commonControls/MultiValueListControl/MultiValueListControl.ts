@@ -36,18 +36,16 @@ import { ControlResponseBuilder } from '../../responseGeneration/ControlResponse
 import {
     InvalidValueAct,
     ValueAddedAct,
-    ValueChangedAct,
     ValueClearedAct,
     ValueConfirmedAct,
-    ValueDisconfirmedAct,
     ValueRemovedAct,
-    ValueSetAct,
 } from '../../systemActs/ContentActs';
 import {
     ConfirmValueAct,
     RequestChangedValueByListAct,
     RequestRemovedValueByListAct,
     RequestValueByListAct,
+    SuggestActionAct,
 } from '../../systemActs/InitiativeActs';
 import { SystemAct } from '../../systemActs/SystemAct';
 import { StringOrList } from '../../utils/BasicTypes';
@@ -67,9 +65,9 @@ export type MultiValueValidationResult = {
     /**
      * A rendered prompt fragment that can be directly included in the `Response`.
      */
-    renderedReason?: string;
+    renderedReason: string;
 
-    invalidValue: string;
+    invalidValues: string[];
 };
 
 /**
@@ -172,7 +170,7 @@ export interface MultiValueListControlProps extends ControlProps {
  * ListControl validation function
  */
 export type SlotValidationFunction = (
-    state: MultiValueListControlState,
+    values: MultiValueListStateValue[],
     input: ControlInput,
 ) => true | MultiValueValidationResult;
 
@@ -185,18 +183,11 @@ export type SlotValidationFunction = (
  */
 export interface MultiValueListControlActionProps {
     /**
-     * Action slot value IDs that are associated with the "set value" capability.
+     * Action slot value IDs that are associated with the "add value/s" capability.
      *
-     * Default: ['builtin_set']
+     * Default ['builtin_add', 'builtin_select']
      */
-    set?: string[];
-
-    /**
-     * Action slot value IDs that are associated with the "change value" capability.
-     *
-     * Default ['builtin_change']
-     */
-    change?: string[];
+    add?: string[];
 
     /**
      * Action slot value IDs that are associated with the "remove value" capability.
@@ -205,13 +196,6 @@ export interface MultiValueListControlActionProps {
      */
 
     remove?: string[];
-
-    /**
-     * Action slot value IDs that are associated with the "add value/s" capability.
-     *
-     * Default ['builtin_add', 'builtin_select']
-     */
-    add?: string[];
 
     /**
      * Action slot value IDs that are associated with the "clear/empty value/s" capability.
@@ -345,24 +329,17 @@ export class MultiValueListControlInteractionModelProps {
  * `this.renderAct()`.
  */
 export class MultiValueListControlPromptProps {
-    valueSet?: StringOrList | ((act: ValueSetAct<any>, input: ControlInput) => StringOrList);
-    valueChanged?: StringOrList | ((act: ValueChangedAct<any>, input: ControlInput) => StringOrList);
     invalidValue?: StringOrList | ((act: InvalidValueAct<any>, input: ControlInput) => StringOrList);
     requestValue?: StringOrList | ((act: RequestValueByListAct, input: ControlInput) => StringOrList);
-    requestChangedValue?:
-        | StringOrList
-        | ((act: RequestChangedValueByListAct, input: ControlInput) => StringOrList);
     requestRemovedValue?:
         | StringOrList
         | ((act: RequestRemovedValueByListAct, input: ControlInput) => StringOrList);
     confirmValue?: StringOrList | ((act: ConfirmValueAct<any>, input: ControlInput) => StringOrList);
     valueConfirmed?: StringOrList | ((act: ValueConfirmedAct<any>, input: ControlInput) => StringOrList);
-    valueDisconfirmed?:
-        | StringOrList
-        | ((act: ValueDisconfirmedAct<any>, input: ControlInput) => StringOrList);
     valueAdded?: StringOrList | ((act: ValueAddedAct<any>, input: ControlInput) => StringOrList);
     valueRemoved?: StringOrList | ((act: ValueRemovedAct<any>, input: ControlInput) => StringOrList);
     valueCleared?: StringOrList | ((act: ValueClearedAct<any>, input: ControlInput) => StringOrList);
+    suggestAction?: StringOrList | ((act: SuggestActionAct<any>, input: ControlInput) => StringOrList);
 }
 
 /**
@@ -378,18 +355,16 @@ export class MultiValueListControlAPLProps {
 
     // TODO js docs
     requestValue?: ControlAPL<RequestValueByListAct, MultiValueListControlState>;
-    requestChangedValue?: ControlAPL<RequestChangedValueByListAct, MultiValueListControlState>;
 }
 
 export type MultiValueListStateValue = {
     id: string;
-    confirmed: boolean;
     erMatch: boolean;
 };
 
 export type LastInitiativeState = {
     actName: string;
-    valueId: string | string[];
+    valueId: string[];
 };
 
 /**
@@ -429,9 +404,12 @@ export class MultiValueListControlState implements ControlState {
     /**
      * Tracks the last initiative act from the control
      */
-    activeInitiativeActName?: string;
-
     lastInitiative?: LastInitiativeState;
+
+    /**
+     * Tracks if the control state values are confirmed
+     */
+    confirmed?: boolean;
 }
 
 /**
@@ -501,8 +479,6 @@ export class MultiValueListControl extends Control implements InteractionModelCo
             confirmationRequired: false,
             interactionModel: {
                 actions: {
-                    set: [$.Action.Set],
-                    change: [$.Action.Change],
                     remove: [$.Action.Remove, $.Action.Delete, $.Action.Ignore],
                     add: [$.Action.Select, $.Action.Add],
                     clear: [$.Action.Clear],
@@ -519,15 +495,6 @@ export class MultiValueListControl extends Control implements InteractionModelCo
                         value: act.payload.renderedValue,
                     }),
                 valueConfirmed: i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_VALUE_AFFIRMED'),
-                valueDisconfirmed: i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_VALUE_DISAFFIRMED'),
-                valueSet: (act) =>
-                    i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_VALUE_SET', {
-                        value: act.payload.renderedValue,
-                    }),
-                valueChanged: (act) =>
-                    i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_VALUE_CHANGED', {
-                        value: act.payload.renderedValue,
-                    }),
                 valueAdded: (act) =>
                     i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_VALUE_ADD', {
                         value: act.payload.renderedValue,
@@ -540,6 +507,7 @@ export class MultiValueListControl extends Control implements InteractionModelCo
                     i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_VALUE_CLEARED', {
                         value: act.payload.renderedValue,
                     }),
+                suggestAction: (act) => i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_ACTION_SUGGEST'),
                 invalidValue: (act) => {
                     if (act.payload.renderedReason !== undefined) {
                         return i18next.t(
@@ -550,14 +518,12 @@ export class MultiValueListControl extends Control implements InteractionModelCo
                             },
                         );
                     }
-                    return i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_GENERAL_INVALID_VALUE');
+                    return i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_GENERAL_INVALID_VALUE', {
+                        value: act.payload.renderedValue,
+                    });
                 },
                 requestValue: (act) =>
                     i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_REQUEST_VALUE', {
-                        suggestions: ListFormatting.format(act.payload.renderedChoicesFromActivePage),
-                    }),
-                requestChangedValue: (act) =>
-                    i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_REQUEST_CHANGED_VALUE', {
                         suggestions: ListFormatting.format(act.payload.renderedChoicesFromActivePage),
                     }),
                 requestRemovedValue: (act) =>
@@ -571,15 +537,6 @@ export class MultiValueListControl extends Control implements InteractionModelCo
                         value: act.payload.renderedValue,
                     }),
                 valueConfirmed: i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_REPROMPT_VALUE_AFFIRMED'),
-                valueDisconfirmed: i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_REPROMPT_VALUE_DISAFFIRMED'),
-                valueSet: (act) =>
-                    i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_REPROMPT_VALUE_SET', {
-                        value: act.payload.renderedValue,
-                    }),
-                valueChanged: (act) =>
-                    i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_REPROMPT_VALUE_CHANGED', {
-                        value: act.payload.renderedValue,
-                    }),
                 valueAdded: (act) =>
                     i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_REPROMPT_VALUE_ADD', {
                         value: act.payload.renderedValue,
@@ -592,6 +549,7 @@ export class MultiValueListControl extends Control implements InteractionModelCo
                     i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_VALUE_CLEARED', {
                         value: act.payload.renderedValue,
                     }),
+                suggestAction: (act) => i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_ACTION_SUGGEST'),
                 invalidValue: (act) => {
                     if (act.payload.renderedReason !== undefined) {
                         return i18next.t(
@@ -602,14 +560,12 @@ export class MultiValueListControl extends Control implements InteractionModelCo
                             },
                         );
                     }
-                    return i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_GENERAL_INVALID_VALUE');
+                    return i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_GENERAL_INVALID_VALUE', {
+                        value: act.payload.renderedValue,
+                    });
                 },
                 requestValue: (act) =>
                     i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_REPROMPT_REQUEST_VALUE', {
-                        suggestions: ListFormatting.format(act.payload.renderedChoicesFromActivePage),
-                    }),
-                requestChangedValue: (act) =>
-                    i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_REPROMPT_REQUEST_CHANGED_VALUE', {
                         suggestions: ListFormatting.format(act.payload.renderedChoicesFromActivePage),
                     }),
                 requestRemovedValue: (act) =>
@@ -631,13 +587,10 @@ export class MultiValueListControl extends Control implements InteractionModelCo
         const customCanHandle = await evaluateCustomHandleFuncs(this, input);
         const builtInCanHandle: boolean =
             this.isAddWithValue(input) ||
-            this.isChangeWithValue(input) ||
             this.isRemoveWithValue(input) ||
-            this.isSetWithValue(input) ||
+            this.isClearValue(input) ||
             this.isConfirmationAffirmed(input) ||
-            this.isConfirmationDisaffirmed(input) ||
-            this.isBareValue(input) ||
-            this.isClearValue(input);
+            this.isConfirmationDisaffirmed(input);
 
         _logIfBothTrue(customCanHandle, builtInCanHandle);
         return customCanHandle || builtInCanHandle;
@@ -647,12 +600,13 @@ export class MultiValueListControl extends Control implements InteractionModelCo
     async handle(input: ControlInput, resultBuilder: ControlResultBuilder): Promise<void> {
         if (this.handleFunc === undefined) {
             log.error(
-                'MultiValueListControl: handle called but no clause matched.  are canHandle/handle out of sync?',
+                'MultiValueListControl: handle called but no clause matched. are canHandle/handle out of sync?',
             );
             const intent: Intent = (input.request as IntentRequest).intent;
             throw new Error(`${intent.name} can not be handled by ${this.constructor.name}.`);
         }
 
+        this.props.required = true;
         await this.handleFunc(input, resultBuilder);
         if (resultBuilder.hasInitiativeAct() !== true && this.canTakeInitiative(input) === true) {
             await this.takeInitiative(input, resultBuilder);
@@ -669,7 +623,7 @@ export class MultiValueListControl extends Control implements InteractionModelCo
             okIf(InputUtil.valueTypeMatch(valueType, this.props.slotType));
             okIf(InputUtil.valueStrDefined(values));
             okIf(InputUtil.feedbackIsMatchOrUndefined(feedback, [$.Feedback.Affirm, $.Feedback.Disaffirm]));
-            okIf(InputUtil.actionIsMatch(action, this.props.interactionModel.actions.add));
+            okIf(InputUtil.actionIsMatchOrUndefined(action, this.props.interactionModel.actions.add));
             this.handleFunc = this.handleAddWithValue;
             return true;
         } catch (e) {
@@ -679,34 +633,40 @@ export class MultiValueListControl extends Control implements InteractionModelCo
 
     private handleAddWithValue(input: ControlInput, resultBuilder: ControlResultBuilder) {
         const slotValues = InputUtil.getMultiValueResolution(input);
-        this.addSlotValues(slotValues);
-        this.evaluateAndAddActs(input, resultBuilder, $.Action.Add);
-    }
+        let values = this.generateSlotValues(slotValues);
+        const validationResult = this.validate(values, input);
+        const valueIds: string[] = [];
 
-    private isChangeWithValue(input: ControlInput): boolean {
-        try {
-            okIf(InputUtil.isIntent(input, MultiValueControlIntent.intentName(this.props.slotType)));
-            const { feedback, action, target, values, valueType } = unpackMultiValueControlIntent(
-                (input.request as IntentRequest).intent,
-            );
-            okIf(InputUtil.targetIsMatchOrUndefined(target, this.props.interactionModel.targets));
-            okIf(InputUtil.valueTypeMatch(valueType, this.props.slotType));
-            okIf(InputUtil.valueStrDefined(values));
-            okIf(InputUtil.feedbackIsMatchOrUndefined(feedback, [$.Feedback.Affirm, $.Feedback.Disaffirm]));
-            okIf(InputUtil.actionIsMatch(action, this.props.interactionModel.actions.change));
-            this.handleFunc = this.handleChangeWithValue;
-            return true;
-        } catch (e) {
-            return falseIfGuardFailed(e);
+        if (validationResult !== true) {
+            // filter out all invalid values
+            values = values.filter((value) => !validationResult.invalidValues.includes(value.id));
         }
-    }
+        values.forEach((value) => {
+            valueIds.push(value.id);
+            this.addValue({
+                id: value.id,
+                erMatch: value.erMatch,
+            });
+        });
 
-    private handleChangeWithValue(input: ControlInput, resultBuilder: ControlResultBuilder): void {
-        const slotValues = InputUtil.getMultiValueResolution(input);
-        this.updateValueOnLastInitiative();
-        this.addSlotValues(slotValues);
-        this.evaluateAndAddActs(input, resultBuilder, $.Action.Change);
-        return;
+        if (valueIds.length > 0) {
+            resultBuilder.addAct(
+                new ValueAddedAct(this, {
+                    value: valueIds,
+                    renderedValue: this.evaluateRenderedValue(valueIds, input),
+                }),
+            );
+        }
+
+        if (validationResult !== true) {
+            resultBuilder.addAct(
+                new InvalidValueAct(this, {
+                    value: validationResult.invalidValues,
+                    renderedValue: this.evaluateRenderedValue(validationResult.invalidValues, input),
+                    renderedReason: validationResult.renderedReason,
+                }),
+            );
+        }
     }
 
     private isRemoveWithValue(input: ControlInput): boolean {
@@ -739,7 +699,6 @@ export class MultiValueListControl extends Control implements InteractionModelCo
                     new InvalidValueAct<string>(this, {
                         value,
                         renderedValue: this.evaluateRenderedValue(value, input),
-                        renderedReason: 'The value does not exist on state',
                     }),
                 );
                 this.askElicitationQuestion(input, resultBuilder, $.Action.Remove);
@@ -756,31 +715,6 @@ export class MultiValueListControl extends Control implements InteractionModelCo
         );
     }
 
-    private isSetWithValue(input: ControlInput): boolean {
-        try {
-            okIf(InputUtil.isIntent(input, MultiValueControlIntent.intentName(this.props.slotType)));
-            const { feedback, action, target, values, valueType } = unpackMultiValueControlIntent(
-                (input.request as IntentRequest).intent,
-            );
-            okIf(InputUtil.targetIsMatchOrUndefined(target, this.props.interactionModel.targets));
-            okIf(InputUtil.valueTypeMatch(valueType, this.props.slotType));
-            okIf(InputUtil.valueStrDefined(values));
-            okIf(InputUtil.feedbackIsMatchOrUndefined(feedback, [$.Feedback.Affirm, $.Feedback.Disaffirm]));
-            okIf(InputUtil.actionIsMatch(action, this.props.interactionModel.actions.set));
-            this.handleFunc = this.handleSetWithValue;
-            return true;
-        } catch (e) {
-            return falseIfGuardFailed(e);
-        }
-    }
-
-    private handleSetWithValue(input: ControlInput, resultBuilder: ControlResultBuilder): void {
-        const slotValues = InputUtil.getMultiValueResolution(input);
-        this.clear();
-        this.addSlotValues(slotValues);
-        this.evaluateAndAddActs(input, resultBuilder, $.Action.Set);
-    }
-
     private isConfirmationAffirmed(input: ControlInput): boolean {
         try {
             okIf(InputUtil.isBareYes(input));
@@ -793,12 +727,10 @@ export class MultiValueListControl extends Control implements InteractionModelCo
     }
 
     private handleConfirmationAffirmed(input: ControlInput, resultBuilder: ControlResultBuilder): void {
-        const valueId = this.state.lastInitiative!.valueId as string[];
+        const valueId = this.state.lastInitiative!.valueId;
         if (valueId !== undefined) {
-            valueId.forEach((value) => {
-                this.state.value!.find(({ id }) => id === value)!.confirmed = true;
-            });
             this.state.lastInitiative = undefined;
+            this.state.confirmed = true;
             resultBuilder.addAct(
                 new ValueConfirmedAct(this, {
                     value: valueId,
@@ -820,135 +752,10 @@ export class MultiValueListControl extends Control implements InteractionModelCo
         }
     }
 
-    private handleConfirmationDisaffirmed(): void {
-        const values = this.state.lastInitiative!.valueId;
-        // If values to be confirmed are more than one. Confirm them individually.
-        if (values.length === 1) {
-            const deleteValue = this.state.lastInitiative!.valueId;
-            const removeIndex = this.state.value!.map((value) => value.id).indexOf(deleteValue[0]);
-            this.state.value!.splice(removeIndex, 1);
-        }
+    private handleConfirmationDisaffirmed(input: ControlInput, resultBuilder: ControlResultBuilder): void {
+        resultBuilder.addAct(new SuggestActionAct(this, {}));
         this.state.lastInitiative = undefined;
         return;
-    }
-
-    private isBareValue(input: ControlInput): any {
-        try {
-            okIf(InputUtil.isIntent(input, MultiValueControlIntent.intentName(this.props.slotType)));
-            const { feedback, action, target, values, valueType } = unpackMultiValueControlIntent(
-                (input.request as IntentRequest).intent,
-            );
-            okIf(InputUtil.feedbackIsMatchOrUndefined(feedback, [$.Feedback.Affirm, $.Feedback.Disaffirm]));
-            okIf(InputUtil.actionIsUndefined(action));
-            okIf(InputUtil.targetIsMatchOrUndefined(target, this.props.interactionModel.targets));
-            okIf(InputUtil.valueStrDefined(values));
-            okIf(
-                InputUtil.valueTypeMatch(
-                    valueType,
-                    this.props.interactionModel.slotValueConflictExtensions.filteredSlotType,
-                ),
-            );
-            this.handleFunc = this.handleBareValue;
-            return true;
-        } catch (e) {
-            return falseIfGuardFailed(e);
-        }
-    }
-
-    private handleBareValue(input: ControlInput, resultBuilder: ControlResultBuilder): void {
-        const slotValues = InputUtil.getMultiValueResolution(input);
-        this.updateValueOnLastInitiative();
-        this.addSlotValues(slotValues);
-        this.evaluateAndAddActs(input, resultBuilder, $.Action.Add);
-        return;
-    }
-
-    private evaluateAndAddActs(
-        input: ControlInput,
-        resultBuilder: ControlResultBuilder,
-        elicitationAction: string,
-    ) {
-        if (this.isConfirmationRequired(input) === true) {
-            const valueIds = this.getSlotIdsToConfirm();
-            this.state.lastInitiative = {
-                actName: ConfirmValueAct.name,
-                valueId: valueIds,
-            };
-            resultBuilder.addAct(
-                new ConfirmValueAct(this, {
-                    value: valueIds,
-                    renderedValue: this.evaluateRenderedValue(valueIds, input),
-                }),
-            );
-            return;
-        }
-
-        const valueIds = this.getSlotIds();
-
-        switch (elicitationAction) {
-            case $.Action.Add:
-                resultBuilder.addAct(
-                    new ValueAddedAct(this, {
-                        value: valueIds,
-                        renderedValue: this.evaluateRenderedValue(valueIds, input),
-                    }),
-                );
-                this.state.lastInitiative = undefined;
-                return;
-            case $.Action.Change: {
-                const previousValue: string[] = [this.state.lastInitiative!.valueId as string];
-                resultBuilder.addAct(
-                    new ValueChangedAct(this, {
-                        value: valueIds,
-                        renderedValue: this.evaluateRenderedValue(valueIds, input),
-                        previousValue,
-                        renderedPreviousValue: this.evaluateRenderedValue(valueIds, input),
-                    }),
-                );
-                this.state.lastInitiative = undefined;
-                return;
-            }
-            case $.Action.Set:
-                resultBuilder.addAct(
-                    new ValueSetAct(this, {
-                        value: valueIds,
-                        renderedValue: this.evaluateRenderedValue(valueIds, input),
-                    }),
-                );
-                this.state.lastInitiative = undefined;
-                return;
-            default:
-                throw new Error(`Unhandled. Unknown elicitationAction: ${elicitationAction}`);
-        }
-    }
-
-    private addSlotValues(values: MultiValueSlot[]): void {
-        // Add the new values to state with confirmation set to false
-        values.forEach((value) => {
-            this.addValue({
-                id: value.slotValue as string,
-                confirmed: false,
-                erMatch: value.isEntityResolutionMatch as boolean,
-            });
-        });
-    }
-
-    private updateValueOnLastInitiative() {
-        if (
-            this.state.lastInitiative !== undefined &&
-            (this.state.lastInitiative.actName === InvalidValueAct.name ||
-                this.state.lastInitiative.actName === ConfirmValueAct.name) // disaffirm feedback with values use-case
-        ) {
-            // delete the changed value from state
-            const values: MultiValueListStateValue[] = this.state.value!;
-            const deleteValueList = Array.isArray(this.state.lastInitiative.valueId)
-                ? this.state.lastInitiative.valueId
-                : [this.state.lastInitiative.valueId];
-            deleteValueList.forEach((deleteValue) => {
-                const removeIndex = values.map((value) => value.id).indexOf(deleteValue);
-                values.splice(removeIndex, 1);
-            });
-        }
     }
 
     private isClearValue(input: ControlInput): boolean {
@@ -979,16 +786,6 @@ export class MultiValueListControl extends Control implements InteractionModelCo
         return;
     }
 
-    private isConfirmationRequired(input: ControlInput) {
-        if (typeof this.props.confirmationRequired === 'function') {
-            return this.props.confirmationRequired(input);
-        } else if (typeof this.props.confirmationRequired === 'boolean') {
-            return this.props.confirmationRequired;
-        } else {
-            return true; // by default confirmation is required
-        }
-    }
-
     /**
      * Add the value to state of this control.
      *
@@ -1011,11 +808,7 @@ export class MultiValueListControl extends Control implements InteractionModelCo
 
     // tsDoc - see Control
     canTakeInitiative(input: ControlInput): boolean {
-        return (
-            this.wantsToConfirmValue(input) ||
-            this.wantsToFixInvalidValue(input) ||
-            this.wantsToElicitValue(input)
-        );
+        return this.wantsToConfirmValue(input) || this.wantsToElicitValue(input);
     }
 
     // tsDoc - see Control
@@ -1035,7 +828,7 @@ export class MultiValueListControl extends Control implements InteractionModelCo
             this.evaluateBooleanProp(this.props.confirmationRequired, input) &&
             this.state.value !== undefined &&
             this.state.value.length !== 0 &&
-            this.isSlotValuesConfirmed() !== true
+            this.state.confirmed !== true
         ) {
             this.initiativeFunc = this.confirmValue;
             return true;
@@ -1043,66 +836,19 @@ export class MultiValueListControl extends Control implements InteractionModelCo
         return false;
     }
 
-    private isSlotValuesConfirmed(): boolean {
-        const values = this.state.value;
-        if (values !== undefined) {
-            const valuesToBeConfirmed = this.getSlotIdsToConfirm();
-            return valuesToBeConfirmed.length === 0;
-        }
-        return true;
-    }
-
     private confirmValue(input: ControlInput, resultBuilder: ControlResultBuilder): void {
-        const valueIds = this.getSlotIdsToConfirm();
-        if (this.state.lastInitiative === undefined) {
-            valueIds.splice(1);
-        }
+        const value = this.getSlotIds();
         this.state.lastInitiative = {
+            valueId: value,
             actName: ConfirmValueAct.name,
-            valueId: valueIds,
         };
+        const result = resultBuilder.acts[0];
         resultBuilder.addAct(
             new ConfirmValueAct(this, {
-                value: valueIds,
-                renderedValue: this.evaluateRenderedValue(valueIds, input),
+                value,
+                renderedValue: this.evaluateRenderedValue(value, input),
             }),
         );
-    }
-
-    private wantsToFixInvalidValue(input: ControlInput): boolean {
-        if (this.state.value !== undefined && this.isSlotValuesValid(input) !== true) {
-            this.initiativeFunc = this.fixInvalidValue;
-            return true;
-        }
-        return false;
-    }
-
-    private isSlotValuesValid(input: ControlInput): boolean {
-        const values = this.state.value;
-        if (values !== undefined) {
-            const validationResult = this.validate(input);
-            return typeof validationResult === 'boolean' ? true : false;
-        }
-        return true;
-    }
-
-    private fixInvalidValue(input: ControlInput, resultBuilder: ControlResultBuilder): void {
-        const validationResult = this.validate(input);
-        if (validationResult !== true) {
-            this.state.lastInitiative = {
-                actName: InvalidValueAct.name,
-                valueId: validationResult.invalidValue,
-            };
-            resultBuilder.addAct(
-                new InvalidValueAct<string>(this, {
-                    value: validationResult.invalidValue,
-                    renderedValue: this.evaluateRenderedValue(validationResult.invalidValue, input),
-                    reasonCode: validationResult.reasonCode,
-                    renderedReason: validationResult.renderedReason,
-                }),
-            );
-        }
-        this.askElicitationQuestion(input, resultBuilder, $.Action.Change);
     }
 
     private wantsToElicitValue(input: ControlInput): boolean {
@@ -1114,14 +860,14 @@ export class MultiValueListControl extends Control implements InteractionModelCo
     }
 
     private elicitValue(input: ControlInput, resultBuilder: ControlResultBuilder): void {
-        this.askElicitationQuestion(input, resultBuilder, $.Action.Set);
+        this.askElicitationQuestion(input, resultBuilder, $.Action.Add);
     }
 
-    private validate(input: ControlInput) {
+    private validate(values: MultiValueListStateValue[], input: ControlInput) {
         const listOfValidationFunc: SlotValidationFunction[] =
             typeof this.props.validation === 'function' ? [this.props.validation] : this.props.validation;
         for (const validationFunction of listOfValidationFunc) {
-            const validationResult: true | MultiValueValidationResult = validationFunction(this.state, input);
+            const validationResult: true | MultiValueValidationResult = validationFunction(values, input);
             if (validationResult !== true) {
                 log.debug(
                     `MultiValueListControl.validate(): validation failed. Reason: ${JSON.stringify(
@@ -1149,7 +895,7 @@ export class MultiValueListControl extends Control implements InteractionModelCo
 
         const choicesFromActivePage = this.getChoicesFromActivePage(allChoices);
         switch (elicitationAction) {
-            case $.Action.Set:
+            case $.Action.Add:
                 resultBuilder.addAct(
                     new RequestValueByListAct(this, {
                         choicesFromActivePage,
@@ -1159,21 +905,6 @@ export class MultiValueListControl extends Control implements InteractionModelCo
                     }),
                 );
                 return;
-            case $.Action.Change: {
-                const value = this.state.lastInitiative!.valueId;
-                const currentValue = Array.isArray(value) ? value[0] : value;
-                resultBuilder.addAct(
-                    new RequestChangedValueByListAct(this, {
-                        currentValue,
-                        renderedValue: this.evaluateRenderedValue(currentValue, input),
-                        choicesFromActivePage,
-                        allChoices,
-                        renderedChoicesFromActivePage: this.props.valueRenderer(choicesFromActivePage, input),
-                        renderedAllChoices: this.props.valueRenderer(allChoices, input),
-                    }),
-                );
-                return;
-            }
             case $.Action.Remove: {
                 const availableChoices = this.getSlotIds();
                 const availableChoicesFromActivePage = this.getChoicesFromActivePage(availableChoices);
@@ -1242,29 +973,6 @@ export class MultiValueListControl extends Control implements InteractionModelCo
             //     const dataSource = this.evaluateAPLProp(act, input, this.props.apl.requestValue.dataSource);
             //     builder.addAPLRenderDocumentDirective('Token', document, dataSource);
             // }
-        } else if (act instanceof RequestChangedValueByListAct) {
-            const prompt = this.evaluatePromptProp(act, this.props.prompts.requestChangedValue, input);
-            const reprompt = this.evaluatePromptProp(act, this.props.reprompts.requestChangedValue, input);
-
-            builder.addPromptFragment(this.evaluatePromptProp(act, prompt, input));
-            builder.addRepromptFragment(this.evaluatePromptProp(act, reprompt, input));
-
-            // if (
-            //     this.evaluateBooleanProp(this.props.apl.enabled, input) === true &&
-            //     getSupportedInterfaces(input.handlerInput.requestEnvelope)['Alexa.Presentation.APL']
-            // ) {
-            //     const document = this.evaluateAPLProp(
-            //         act,
-            //         input,
-            //         this.props.apl.requestChangedValue.document,
-            //     );
-            //     const dataSource = this.evaluateAPLProp(
-            //         act,
-            //         input,
-            //         this.props.apl.requestChangedValue.dataSource,
-            //     );
-            //     builder.addAPLRenderDocumentDirective('Token', document, dataSource);
-            // }
         } else if (act instanceof RequestRemovedValueByListAct) {
             const prompt = this.evaluatePromptProp(act, this.props.prompts.requestRemovedValue, input);
             const reprompt = this.evaluatePromptProp(act, this.props.reprompts.requestRemovedValue, input);
@@ -1285,14 +993,6 @@ export class MultiValueListControl extends Control implements InteractionModelCo
             builder.addRepromptFragment(
                 this.evaluatePromptProp(act, this.props.reprompts.invalidValue, input),
             );
-        } else if (act instanceof ValueSetAct) {
-            builder.addPromptFragment(this.evaluatePromptProp(act, this.props.prompts.valueSet, input));
-            builder.addRepromptFragment(this.evaluatePromptProp(act, this.props.reprompts.valueSet, input));
-        } else if (act instanceof ValueChangedAct) {
-            builder.addPromptFragment(this.evaluatePromptProp(act, this.props.prompts.valueChanged, input));
-            builder.addRepromptFragment(
-                this.evaluatePromptProp(act, this.props.reprompts.valueChanged, input),
-            );
         } else if (act instanceof ValueAddedAct) {
             builder.addPromptFragment(this.evaluatePromptProp(act, this.props.prompts.valueAdded, input));
             builder.addRepromptFragment(this.evaluatePromptProp(act, this.props.reprompts.valueAdded, input));
@@ -1311,17 +1011,15 @@ export class MultiValueListControl extends Control implements InteractionModelCo
             builder.addRepromptFragment(
                 this.evaluatePromptProp(act, this.props.reprompts.confirmValue, input),
             );
+        } else if (act instanceof SuggestActionAct) {
+            builder.addPromptFragment(this.evaluatePromptProp(act, this.props.prompts.suggestAction, input));
+            builder.addRepromptFragment(
+                this.evaluatePromptProp(act, this.props.reprompts.suggestAction, input),
+            );
         } else if (act instanceof ValueConfirmedAct) {
             builder.addPromptFragment(this.evaluatePromptProp(act, this.props.prompts.valueConfirmed, input));
             builder.addRepromptFragment(
                 this.evaluatePromptProp(act, this.props.reprompts.valueConfirmed, input),
-            );
-        } else if (act instanceof ValueDisconfirmedAct) {
-            builder.addPromptFragment(
-                this.evaluatePromptProp(act, this.props.prompts.valueDisconfirmed, input),
-            );
-            builder.addRepromptFragment(
-                this.evaluatePromptProp(act, this.props.reprompts.valueDisconfirmed, input),
             );
         } else {
             this.throwUnhandledActError(act);
@@ -1350,7 +1048,7 @@ export class MultiValueListControl extends Control implements InteractionModelCo
             );
         }
 
-        if (this.props.interactionModel.actions.set.includes($.Action.Select)) {
+        if (this.props.interactionModel.actions.add.includes($.Action.Select)) {
             generator.addValuesToSlotType(
                 SharedSlotType.ACTION,
                 i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_SLOT_VALUES_ACTION_SELECT', {
@@ -1375,7 +1073,14 @@ export class MultiValueListControl extends Control implements InteractionModelCo
         return this.state.value!.map(({ id }) => id);
     }
 
-    private getSlotIdsToConfirm(): string[] {
-        return this.state.value!.filter(({ confirmed }) => confirmed === false).map(({ id }) => id);
+    private generateSlotValues(values: MultiValueSlot[]): MultiValueListStateValue[] {
+        const valueIds: MultiValueListStateValue[] = [];
+        values.forEach((value) => {
+            valueIds.push({
+                id: value.slotValue as string,
+                erMatch: value.isEntityResolutionMatch as boolean,
+            });
+        });
+        return valueIds;
     }
 }

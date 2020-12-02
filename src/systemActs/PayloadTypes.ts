@@ -97,6 +97,13 @@ export interface ValueChangedPayload<T> {
 }
 
 /**
+ * Payload for SuggestActionAct
+ */
+export interface SuggestActionPayload<T> {
+    renderedTarget?: string;
+}
+
+/**
  * Payload for InvalidValueAct
  */
 export interface InvalidValuePayload<T> {

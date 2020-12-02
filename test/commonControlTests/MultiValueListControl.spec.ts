@@ -14,14 +14,13 @@
 import { suite, test } from 'mocha';
 import {
     MultiValueListControl,
-    MultiValueListControlState,
+    MultiValueListStateValue,
     MultiValueValidationResult,
 } from '../../src/commonControls/MultiValueListControl/MultiValueListControl';
 import { Strings as $ } from '../../src/constants/Strings';
 import { Control } from '../../src/controls/Control';
 import { ControlManager } from '../../src/controls/ControlManager';
 import { AmazonIntent } from '../../src/intents/AmazonBuiltInIntent';
-import { GeneralControlIntent } from '../../src/intents/GeneralControlIntent';
 import { MultiValueControlIntent } from '../../src/intents/MultiValueControlIntent';
 import { ControlHandler } from '../../src/runtime/ControlHandler';
 import { IntentBuilder } from '../../src/utils/IntentUtils';
@@ -38,73 +37,32 @@ suite('MultiValueListControl e2e tests', () => {
                 listItemIDs: getProductList,
                 slotType: 'AppleSuite',
                 confirmationRequired: true,
+                prompts: {
+                    confirmValue: 'Is that all?',
+                },
             });
 
             function getProductList() {
                 return ['AirPods', 'iWatch', 'iPhone', 'iPad', 'MacBook'];
             }
 
-            function validateProducts(state: MultiValueListControlState): true | MultiValueValidationResult {
-                for (const product of state.value!) {
+            function validateProducts(values: MultiValueListStateValue[]): true | MultiValueValidationResult {
+                const invalidValues = [];
+                for (const product of values) {
                     if (getProductList().includes(product.id) !== true) {
-                        return {
-                            renderedReason: 'Apple Suite category validation failed',
-                            invalidValue: product.id,
-                        };
+                        invalidValues.push(product.id);
                     }
+                }
+                if (invalidValues.length > 0) {
+                    return {
+                        invalidValues,
+                        renderedReason: 'item is not available in the product list',
+                    };
                 }
                 return true;
             }
 
             return categoryControl;
-        }
-    }
-
-    function contactSelectorControl(confirmationRequired: boolean = false): MultiValueListControl {
-        return new MultiValueListControl({
-            id: 'contact',
-            validation: validateContacts,
-            listItemIDs: getContacts,
-            slotType: 'ContactSelector',
-            interactionModel: {
-                actions: {
-                    change: [$.Action.Change, 'replace'],
-                    add: [$.Action.Select, $.Action.Add, 'send'],
-                },
-            },
-            prompts: {
-                confirmValue: (act) => {
-                    return `Do you want to add ${act.payload.renderedValue}?`;
-                },
-            },
-            confirmationRequired,
-        });
-    }
-    function getContacts() {
-        return ['Maya', 'Mary', 'Dave', 'Joe'];
-    }
-
-    function validateContacts(state: MultiValueListControlState): true | MultiValueValidationResult {
-        for (const contact of state.value!) {
-            if (getContacts().includes(contact.id) !== true) {
-                return {
-                    renderedReason: 'Input name is not part of your contact list',
-                    invalidValue: contact.id,
-                };
-            }
-        }
-        return true;
-    }
-
-    class ContactSelectorManager extends ControlManager {
-        createControlTree(): Control {
-            return contactSelectorControl();
-        }
-    }
-
-    class ConfirmationContactSelectorManager extends ControlManager {
-        createControlTree(): Control {
-            return contactSelectorControl(true);
         }
     }
 
@@ -119,45 +77,28 @@ suite('MultiValueListControl e2e tests', () => {
                         action: $.Action.Add,
                     }),
                 ),
-                'A: Was that iPhone and iPac?',
+                "A: OK, added iPhone. Sorry, iPac can't be added as item is not available in the product list. Is that all?",
                 'U: Yeah.',
                 TestInput.of(IntentBuilder.of(AmazonIntent.YesIntent)),
-                'A: Great. Sorry, iPac is not a valid choice because Apple Suite category validation failed. What should I change it to? Some suggestions are AirPods, iWatch or iPhone.',
+                'A: Great.',
             ]);
         });
 
-        test('Add multiple items on confirmation prompt', async () => {
+        test('Add multiple items invalid values, elicit a value for control', async () => {
             const requestHandler = new ControlHandler(new CategorySuiteManager());
             await testE2E(requestHandler, [
-                'U: add iPhone and MacBook',
+                'U: add iPod and iPac',
                 TestInput.of(
                     MultiValueControlIntent.of('AppleSuite', {
-                        AppleSuite: ['iPhone', 'MacBook'],
+                        AppleSuite: ['iPod', 'iPac'],
                         action: $.Action.Add,
                     }),
                 ),
-                'A: Was that iPhone and MacBook?',
-                'U: Yeah.',
-                TestInput.of(IntentBuilder.of(AmazonIntent.YesIntent)),
-                'A: Great.',
-                'U: add iPac',
-                TestInput.of(
-                    MultiValueControlIntent.of('AppleSuite', { AppleSuite: 'iPac', action: $.Action.Add }),
-                ),
-                'A: Was that iPac?',
-                'U: Yeah.',
-                TestInput.of(IntentBuilder.of(AmazonIntent.YesIntent)),
-                'A: Great. Sorry, iPac is not a valid choice because Apple Suite category validation failed. What should I change it to? Some suggestions are AirPods, iWatch or iPhone.',
-                'U: AirPods and iWatch', //replacement for iPac and additional value
-                TestInput.of(MultiValueControlIntent.of('AppleSuite', { AppleSuite: ['AirPods', 'iWatch'] })),
-                'A: Was that AirPods and iWatch?',
-                'U: Yes',
-                TestInput.of(IntentBuilder.of(AmazonIntent.YesIntent)),
-                'A: Great.',
+                "A:  Sorry, iPod and iPac can't be added as item is not available in the product list. What is your selection? Some suggestions are AirPods, iWatch or iPhone.",
             ]);
         });
 
-        test('Bare Values support to change invalid values', async () => {
+        test('Bare values support', async () => {
             const requestHandler = new ControlHandler(new CategorySuiteManager());
             await testE2E(requestHandler, [
                 'U: add iPhone and iPac',
@@ -167,185 +108,49 @@ suite('MultiValueListControl e2e tests', () => {
                         action: $.Action.Add,
                     }),
                 ),
-                'A: Was that iPhone and iPac?',
-                'U: Yes',
-                TestInput.of(IntentBuilder.of(AmazonIntent.YesIntent)),
-                'A: Great. Sorry, iPac is not a valid choice because Apple Suite category validation failed. What should I change it to? Some suggestions are AirPods, iWatch or iPhone.',
-                'U: AirPods', //replacement for iPac
-                TestInput.of(MultiValueControlIntent.of('AppleSuite', { AppleSuite: 'AirPods' })),
-                'A: Was that AirPods?',
-                'U: Yes',
+                "A: OK, added iPhone. Sorry, iPac can't be added as item is not available in the product list. Is that all?",
+                'U: iPad',
+                TestInput.of(MultiValueControlIntent.of('AppleSuite', { AppleSuite: 'iPad' })),
+                'A: OK, added iPad. Is that all?',
+                'U: Yeah.',
                 TestInput.of(IntentBuilder.of(AmazonIntent.YesIntent)),
                 'A: Great.',
             ]);
         });
 
-        test('Add multiple items and provide replacements', async () => {
+        test('Negative prompts and removal of items', async () => {
             const requestHandler = new ControlHandler(new CategorySuiteManager());
             await testE2E(requestHandler, [
-                'U: add iPhone and iPac',
+                'U: add iPhone and AirPods',
                 TestInput.of(
                     MultiValueControlIntent.of('AppleSuite', {
-                        AppleSuite: ['iPhone', 'iPac'],
+                        AppleSuite: ['iPhone', 'AirPods'],
                         action: $.Action.Add,
                     }),
                 ),
-                'A: Was that iPhone and iPac?',
-                'U: Add iPod.',
+                'A: OK, added iPhone and AirPods. Is that all?',
+                'U: No',
+                TestInput.of(IntentBuilder.of(AmazonIntent.NoIntent)),
+                'A: You can add or update more values',
+                'U: remove iPods',
                 TestInput.of(
                     MultiValueControlIntent.of('AppleSuite', {
-                        AppleSuite: 'iPod',
-                        action: $.Action.Add,
+                        AppleSuite: 'iPods',
+                        action: $.Action.Remove,
                     }),
                 ),
-                'A: Was that iPhone, iPac and iPod?',
-                'U: Yes',
-                TestInput.of(IntentBuilder.of(AmazonIntent.YesIntent)),
-                'A: Great. Sorry, iPac is not a valid choice because Apple Suite category validation failed. What should I change it to? Some suggestions are AirPods, iWatch or iPhone.',
-                'U: AirPods', //replacement for iPac
-                TestInput.of(MultiValueControlIntent.of('AppleSuite', { AppleSuite: 'AirPods' })),
-                'A: Was that AirPods?',
-                'U: Yes',
-                TestInput.of(IntentBuilder.of(AmazonIntent.YesIntent)),
-                'A: Great. Sorry, iPod is not a valid choice because Apple Suite category validation failed. What should I change it to? Some suggestions are AirPods, iWatch or iPhone.',
-                'U: iWatch',
-                TestInput.of(MultiValueControlIntent.of('AppleSuite', { AppleSuite: 'iWatch' })),
-                'A: Was that iWatch?',
+                "A: Sorry, iPods can't be added it doesn't exist. What value do you want to remove? Some suggestions are iPhone or AirPods.",
+                'U: remove AirPods',
+                TestInput.of(
+                    MultiValueControlIntent.of('AppleSuite', {
+                        AppleSuite: 'AirPods',
+                        action: $.Action.Remove,
+                    }),
+                ),
+                'A: OK, removed AirPods. Is that all?',
                 'U: Yes',
                 TestInput.of(IntentBuilder.of(AmazonIntent.YesIntent)),
                 'A: Great.',
-            ]);
-        });
-    });
-
-    suite('ContactSelectorManager e2e tests', () => {
-        test('add multiple contacts to send card', async () => {
-            const requestHandler = new ControlHandler(new ContactSelectorManager());
-            await testE2E(requestHandler, [
-                'U: send to Mary and Maya ',
-                TestInput.of(
-                    MultiValueControlIntent.of('ContactSelector', {
-                        ContactSelector: ['Mary', 'Maya'],
-                        action: 'send',
-                    }),
-                ),
-                'A: OK, added Mary and Maya.',
-            ]);
-        });
-
-        test('add multiple invalid contacts to send card', async () => {
-            const requestHandler = new ControlHandler(new ContactSelectorManager());
-            await testE2E(requestHandler, [
-                'U: send to Amazon and Jake ',
-                TestInput.of(
-                    MultiValueControlIntent.of('ContactSelector', {
-                        ContactSelector: ['Amazon', 'Jake'],
-                        action: 'send',
-                    }),
-                ),
-                'A: OK, added Amazon and Jake. Sorry, Amazon is not a valid choice because Input name is not part of your contact list. What should I change it to? Some suggestions are Maya, Mary or Dave.',
-                'U: replace to Maya',
-                TestInput.of(
-                    MultiValueControlIntent.of('ContactSelector', {
-                        ContactSelector: 'Maya',
-                        action: 'replace',
-                    }),
-                ),
-                'A: OK, I changed it to Jake and Maya. Sorry, Jake is not a valid choice because Input name is not part of your contact list. What should I change it to? Some suggestions are Maya, Mary or Dave.',
-                'U: change to Mary and Dave',
-                TestInput.of(
-                    MultiValueControlIntent.of('ContactSelector', {
-                        ContactSelector: ['Mary', 'Dave'],
-                        action: $.Action.Change,
-                    }),
-                ),
-                'A: OK, I changed it to Maya, Mary and Dave.',
-            ]);
-        });
-
-        test('add multiple contacts with negative confirmation', async () => {
-            const requestHandler = new ControlHandler(new ConfirmationContactSelectorManager());
-            await testE2E(requestHandler, [
-                'U: send it to Amazon and Jake ',
-                TestInput.of(
-                    MultiValueControlIntent.of('ContactSelector', {
-                        ContactSelector: ['Amazon', 'Jake'],
-                        action: 'send',
-                    }),
-                ),
-                'A: Do you want to add Amazon and Jake?',
-                'U: Nope',
-                TestInput.of(IntentBuilder.of(AmazonIntent.NoIntent)),
-                'A: Do you want to add Amazon?',
-                'U: No Mary and Joe', // no with values are assumed to delete Invalid/Confirm Act values and replace them
-                TestInput.of(
-                    MultiValueControlIntent.of('ContactSelector', {
-                        ContactSelector: ['Mary', 'Joe'],
-                        feedback: $.Feedback.Disaffirm,
-                    }),
-                ),
-                'A: Do you want to add Jake, Mary and Joe?',
-                'U: Nah',
-                TestInput.of(IntentBuilder.of(AmazonIntent.NoIntent)),
-                'A: Do you want to add Jake?',
-                'U: Nope',
-                TestInput.of(IntentBuilder.of(AmazonIntent.NoIntent)),
-                'A: Do you want to add Mary?',
-                'U: Yeah',
-                TestInput.of(IntentBuilder.of(AmazonIntent.YesIntent)),
-                'A: Great. Do you want to add Joe?',
-                'U: Yes',
-                TestInput.of(IntentBuilder.of(AmazonIntent.YesIntent)),
-                'A: Great.',
-            ]);
-        });
-
-        test('remove items from list and set to new values', async () => {
-            const requestHandler = new ControlHandler(new ContactSelectorManager());
-            await testE2E(requestHandler, [
-                'U: send to Mary and Maya ',
-                TestInput.of(
-                    MultiValueControlIntent.of('ContactSelector', {
-                        ContactSelector: ['Mary', 'Maya'],
-                        action: 'send',
-                    }),
-                ),
-                'A: OK, added Mary and Maya.',
-                'U: remove Maya',
-                TestInput.of(
-                    MultiValueControlIntent.of('ContactSelector', {
-                        ContactSelector: 'Maya',
-                        action: $.Action.Remove,
-                    }),
-                ),
-                'A: OK, removed Maya.',
-                'U: remove Maya',
-                TestInput.of(
-                    MultiValueControlIntent.of('ContactSelector', {
-                        ContactSelector: 'Maya',
-                        action: $.Action.Remove,
-                    }),
-                ),
-                'A: Sorry, Maya is not a valid choice because The value does not exist on state. What value do you want to remove? Some suggestions are Mary.',
-                'U: remove Mary',
-                TestInput.of(
-                    MultiValueControlIntent.of('ContactSelector', {
-                        ContactSelector: 'Mary',
-                        action: $.Action.Remove,
-                    }),
-                ),
-                'A: OK, removed Mary.',
-                'U: set it to Joe and Dave',
-                TestInput.of(
-                    MultiValueControlIntent.of('ContactSelector', {
-                        ContactSelector: ['Joe', 'Dave'],
-                        action: $.Action.Set,
-                    }),
-                ),
-                'A: OK, Joe and Dave.',
-                'U: clear it',
-                TestInput.of(GeneralControlIntent.of({ action: $.Action.Clear })),
-                'A: OK, removed all Joe and Dave. What is your selection? Some suggestions are Maya, Mary or Dave.',
             ]);
         });
     });
