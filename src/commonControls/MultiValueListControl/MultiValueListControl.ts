@@ -34,6 +34,7 @@ import { ListFormatting } from '../../intl/ListFormat';
 import { Logger } from '../../logging/Logger';
 import { ControlResponseBuilder } from '../../responseGeneration/ControlResponseBuilder';
 import {
+    InvalidRemoveValueAct,
     InvalidValueAct,
     ValueAddedAct,
     ValueClearedAct,
@@ -42,7 +43,6 @@ import {
 } from '../../systemActs/ContentActs';
 import {
     ConfirmValueAct,
-    RequestChangedValueByListAct,
     RequestRemovedValueByListAct,
     RequestValueByListAct,
     SuggestActionAct,
@@ -330,6 +330,9 @@ export class MultiValueListControlInteractionModelProps {
  */
 export class MultiValueListControlPromptProps {
     invalidValue?: StringOrList | ((act: InvalidValueAct<any>, input: ControlInput) => StringOrList);
+    invalidRemoveValue?:
+        | StringOrList
+        | ((act: InvalidRemoveValueAct<any>, input: ControlInput) => StringOrList);
     requestValue?: StringOrList | ((act: RequestValueByListAct, input: ControlInput) => StringOrList);
     requestRemovedValue?:
         | StringOrList
@@ -364,7 +367,7 @@ export type MultiValueListStateValue = {
 
 export type LastInitiativeState = {
     actName: string;
-    valueId: string[];
+    valueIds: string[];
 };
 
 /**
@@ -522,14 +525,26 @@ export class MultiValueListControl extends Control implements InteractionModelCo
                         value: act.payload.renderedValue,
                     });
                 },
+                invalidRemoveValue: (act) => {
+                    return i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_GENERAL_INVALID_REMOVE_VALUE', {
+                        value: act.payload.renderedValue,
+                    });
+                },
                 requestValue: (act) =>
                     i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_REQUEST_VALUE', {
                         suggestions: ListFormatting.format(act.payload.renderedChoicesFromActivePage),
                     }),
-                requestRemovedValue: (act) =>
-                    i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_REQUEST_REMOVED_VALUE', {
-                        suggestions: ListFormatting.format(act.payload.renderedChoicesFromActivePage),
-                    }),
+                requestRemovedValue: (act) => {
+                    if (
+                        act.payload.availableChoicesFromActivePage !== undefined &&
+                        act.payload.availableChoicesFromActivePage.length > 0
+                    ) {
+                        return i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_REQUEST_REMOVED_VALUE', {
+                            suggestions: ListFormatting.format(act.payload.renderedChoicesFromActivePage),
+                        });
+                    }
+                    return i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_GENERAL_REQUEST_REMOVED_VALUE');
+                },
             },
             reprompts: {
                 confirmValue: (act) =>
@@ -546,10 +561,10 @@ export class MultiValueListControl extends Control implements InteractionModelCo
                         value: act.payload.renderedValue,
                     }),
                 valueCleared: (act) =>
-                    i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_VALUE_CLEARED', {
+                    i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_REPROMPT_VALUE_CLEARED', {
                         value: act.payload.renderedValue,
                     }),
-                suggestAction: (act) => i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_ACTION_SUGGEST'),
+                suggestAction: (act) => i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_REPROMPT_ACTION_SUGGEST'),
                 invalidValue: (act) => {
                     if (act.payload.renderedReason !== undefined) {
                         return i18next.t(
@@ -560,18 +575,33 @@ export class MultiValueListControl extends Control implements InteractionModelCo
                             },
                         );
                     }
-                    return i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_GENERAL_INVALID_VALUE', {
+                    return i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_REPROMPT_GENERAL_INVALID_VALUE', {
                         value: act.payload.renderedValue,
                     });
+                },
+                invalidRemoveValue: (act) => {
+                    return i18next.t(
+                        'MULTI_VALUE_LIST_CONTROL_DEFAULT_REPROMPT_GENERAL_INVALID_REMOVE_VALUE',
+                        {
+                            value: act.payload.renderedValue,
+                        },
+                    );
                 },
                 requestValue: (act) =>
                     i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_REPROMPT_REQUEST_VALUE', {
                         suggestions: ListFormatting.format(act.payload.renderedChoicesFromActivePage),
                     }),
-                requestRemovedValue: (act) =>
-                    i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_REQUEST_REMOVED_VALUE', {
-                        suggestions: ListFormatting.format(act.payload.renderedChoicesFromActivePage),
-                    }),
+                requestRemovedValue: (act) => {
+                    if (
+                        act.payload.availableChoicesFromActivePage !== undefined &&
+                        act.payload.availableChoicesFromActivePage.length > 0
+                    ) {
+                        return i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_REQUEST_REMOVED_VALUE', {
+                            suggestions: ListFormatting.format(act.payload.renderedChoicesFromActivePage),
+                        });
+                    }
+                    return i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_GENERAL_REQUEST_REMOVED_VALUE');
+                },
             },
             inputHandling: {
                 customHandlingFuncs: [],
@@ -643,10 +673,7 @@ export class MultiValueListControl extends Control implements InteractionModelCo
         }
         values.forEach((value) => {
             valueIds.push(value.id);
-            this.addValue({
-                id: value.id,
-                erMatch: value.erMatch,
-            });
+            this.addValue(value);
         });
 
         if (valueIds.length > 0) {
@@ -667,6 +694,7 @@ export class MultiValueListControl extends Control implements InteractionModelCo
                 }),
             );
         }
+        return;
     }
 
     private isRemoveWithValue(input: ControlInput): boolean {
@@ -689,30 +717,51 @@ export class MultiValueListControl extends Control implements InteractionModelCo
 
     private handleRemoveWithValue(input: ControlInput, resultBuilder: ControlResultBuilder): void {
         const slotValues = InputUtil.getMultiValueResolution(input);
-        const valueIds = slotValues.map(({ slotValue }) => slotValue as string);
-        const stateValues: MultiValueListStateValue[] = this.state.value!;
+        const valueIds = this.generateSlotValues(slotValues);
         const deletedValues = [];
-        for (const value of valueIds) {
-            const removeIndex = stateValues.map((value) => value.id).indexOf(value);
-            if (removeIndex === -1) {
-                resultBuilder.addAct(
-                    new InvalidValueAct<string>(this, {
-                        value,
-                        renderedValue: this.evaluateRenderedValue(value, input),
-                    }),
-                );
-                this.askElicitationQuestion(input, resultBuilder, $.Action.Remove);
-                return;
-            }
-            deletedValues.push(value);
-            stateValues.splice(removeIndex, 1);
+        let invalidValues: string[] = [];
+
+        if (this.state.value === undefined) {
+            invalidValues = valueIds.map(({ id }) => id);
+            resultBuilder.addAct(
+                new InvalidRemoveValueAct(this, {
+                    value: invalidValues,
+                    renderedValue: this.evaluateRenderedValue(invalidValues, input),
+                }),
+            );
+            this.askElicitationQuestion(input, resultBuilder, $.Action.Remove);
+            return;
         }
-        resultBuilder.addAct(
-            new ValueRemovedAct(this, {
-                value: deletedValues,
-                renderedValue: this.evaluateRenderedValue(deletedValues, input),
-            }),
-        );
+
+        for (const value of valueIds) {
+            const removeIndex = this.state.value.map((stateValue) => stateValue.id).indexOf(value.id);
+            if (removeIndex === -1) {
+                invalidValues.push(value.id);
+            } else {
+                deletedValues.push(value.id);
+                this.state.value.splice(removeIndex, 1);
+            }
+        }
+
+        if (deletedValues.length > 0) {
+            resultBuilder.addAct(
+                new ValueRemovedAct(this, {
+                    value: deletedValues,
+                    renderedValue: this.evaluateRenderedValue(deletedValues, input),
+                }),
+            );
+        }
+
+        if (invalidValues.length > 0) {
+            resultBuilder.addAct(
+                new InvalidRemoveValueAct(this, {
+                    value: invalidValues,
+                    renderedValue: this.evaluateRenderedValue(invalidValues, input),
+                }),
+            );
+            this.askElicitationQuestion(input, resultBuilder, $.Action.Remove);
+        }
+        return;
     }
 
     private isConfirmationAffirmed(input: ControlInput): boolean {
@@ -727,14 +776,14 @@ export class MultiValueListControl extends Control implements InteractionModelCo
     }
 
     private handleConfirmationAffirmed(input: ControlInput, resultBuilder: ControlResultBuilder): void {
-        const valueId = this.state.lastInitiative!.valueId;
-        if (valueId !== undefined) {
+        const valueIds = this.state.lastInitiative!.valueIds;
+        if (valueIds !== undefined) {
             this.state.lastInitiative = undefined;
             this.state.confirmed = true;
             resultBuilder.addAct(
                 new ValueConfirmedAct(this, {
-                    value: valueId,
-                    renderedValue: this.evaluateRenderedValue(valueId, input),
+                    value: valueIds,
+                    renderedValue: this.evaluateRenderedValue(valueIds, input),
                 }),
             );
         }
@@ -775,12 +824,12 @@ export class MultiValueListControl extends Control implements InteractionModelCo
     }
 
     private handleClearValue(input: ControlInput, resultBuilder: ControlResultBuilder): void {
-        const valueIds = this.getSlotIds();
+        const value = this.getSlotIds();
         this.clear();
         resultBuilder.addAct(
             new ValueClearedAct(this, {
-                value: valueIds,
-                renderedValue: this.evaluateRenderedValue(valueIds, input),
+                value,
+                renderedValue: this.evaluateRenderedValue(value, input),
             }),
         );
         return;
@@ -837,22 +886,25 @@ export class MultiValueListControl extends Control implements InteractionModelCo
     }
 
     private confirmValue(input: ControlInput, resultBuilder: ControlResultBuilder): void {
-        const value = this.getSlotIds();
+        const valueIds = this.getSlotIds();
         this.state.lastInitiative = {
-            valueId: value,
+            valueIds,
             actName: ConfirmValueAct.name,
         };
-        const result = resultBuilder.acts[0];
         resultBuilder.addAct(
             new ConfirmValueAct(this, {
-                value,
-                renderedValue: this.evaluateRenderedValue(value, input),
+                value: valueIds,
+                renderedValue: this.evaluateRenderedValue(valueIds, input),
             }),
         );
     }
 
     private wantsToElicitValue(input: ControlInput): boolean {
-        if (this.state.value === undefined && this.evaluateBooleanProp(this.props.required, input)) {
+        if (
+            (this.state.value === undefined ||
+                (this.state.value !== undefined && this.state.value.length === 0)) &&
+            this.evaluateBooleanProp(this.props.required, input)
+        ) {
             this.initiativeFunc = this.elicitValue;
             return true;
         }
@@ -993,6 +1045,13 @@ export class MultiValueListControl extends Control implements InteractionModelCo
             builder.addRepromptFragment(
                 this.evaluatePromptProp(act, this.props.reprompts.invalidValue, input),
             );
+        } else if (act instanceof InvalidRemoveValueAct) {
+            builder.addPromptFragment(
+                this.evaluatePromptProp(act, this.props.prompts.invalidRemoveValue, input),
+            );
+            builder.addRepromptFragment(
+                this.evaluatePromptProp(act, this.props.reprompts.invalidRemoveValue, input),
+            );
         } else if (act instanceof ValueAddedAct) {
             builder.addPromptFragment(this.evaluatePromptProp(act, this.props.prompts.valueAdded, input));
             builder.addRepromptFragment(this.evaluatePromptProp(act, this.props.reprompts.valueAdded, input));
@@ -1070,7 +1129,10 @@ export class MultiValueListControl extends Control implements InteractionModelCo
     }
 
     private getSlotIds(): string[] {
-        return this.state.value!.map(({ id }) => id);
+        if (this.state.value !== undefined) {
+            return this.state.value.map(({ id }) => id);
+        }
+        return [];
     }
 
     private generateSlotValues(values: MultiValueSlot[]): MultiValueListStateValue[] {

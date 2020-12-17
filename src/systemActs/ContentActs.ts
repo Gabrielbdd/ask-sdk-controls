@@ -545,3 +545,16 @@ export class ValueClearedAct<T> extends ContentAct {
         controlResponseBuilder.addPromptFragment(`OK, removed all ${this.payload.value}.`);
     }
 }
+
+export class InvalidRemoveValueAct<T> extends ContentAct {
+    public readonly payload: InvalidValuePayload<T>;
+
+    constructor(control: Control, payload: InvalidValuePayload<T>) {
+        super(control);
+        this.payload = payload;
+    }
+
+    render(input: ControlInput, controlResponseBuilder: ControlResponseBuilder): void {
+        controlResponseBuilder.addPromptFragment(`Sorry, ${this.payload.value} is not in the list.`);
+    }
+}

@@ -183,11 +183,14 @@ export const defaultI18nResources: Resource = {
             MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_VALUE_ADD: 'OK, added {{value}}.',
             MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_VALUE_REMOVE: 'OK, removed {{value}}.',
             MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_VALUE_CLEARED: 'OK, removed all {{value}}.',
-            MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_ACTION_SUGGEST: 'You can add or update more values',
+            MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_ACTION_SUGGEST:
+                'You can add new values or update existing values',
             MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_GENERAL_INVALID_VALUE:
                 "Sorry, {{value}} can't be added it doesn't exist.",
             MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_INVALID_VALUE_WITH_REASON:
                 "Sorry, {{value}} can't be added as {{reason}}.",
+            MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_GENERAL_INVALID_REMOVE_VALUE:
+                'Sorry, {{value}} is not in the list.',
             MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_UNUSABLE_INPUT_VALUE:
                 "Sorry, I'm not sure how to do that.",
             MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_REQUEST_VALUE:
@@ -196,6 +199,8 @@ export const defaultI18nResources: Resource = {
                 'What should I change it to? Some suggestions are {{suggestions}}.',
             MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_REQUEST_REMOVED_VALUE:
                 'What value do you want to remove? Some suggestions are {{suggestions}}.',
+            MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_GENERAL_REQUEST_REMOVED_VALUE:
+                'What value do you want to remove?',
             MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_CONFIRM_VALUE: 'OK, I have {{value}}. Is that all?',
             MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_VALUE_AFFIRMED: 'Great.',
             MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_VALUE_DISAFFIRMED: 'My mistake.',
@@ -204,9 +209,12 @@ export const defaultI18nResources: Resource = {
             MULTI_VALUE_LIST_CONTROL_DEFAULT_REPROMPT_VALUE_ADD: 'OK, added {{value}}.',
             MULTI_VALUE_LIST_CONTROL_DEFAULT_REPROMPT_VALUE_REMOVE: 'OK, removed {{value}}.',
             MULTI_VALUE_LIST_CONTROL_DEFAULT_REPROMPT_VALUE_CLEARED: 'OK, removed all {{value}}.',
-            MULTI_VALUE_LIST_CONTROL_DEFAULT_REPROMPT_ACTION_SUGGEST: 'You can add or update more values',
+            MULTI_VALUE_LIST_CONTROL_DEFAULT_REPROMPT_ACTION_SUGGEST:
+                'You can add new values or update existing values',
             MULTI_VALUE_LIST_CONTROL_DEFAULT_REPROMPT_GENERAL_INVALID_VALUE:
                 "Sorry, {{value}} can't be added it doesn't exist.",
+            MULTI_VALUE_LIST_CONTROL_DEFAULT_REPROMPT_GENERAL_INVALID_REMOVE_VALUE:
+                'Sorry, {{value}} is not in the list.',
             MULTI_VALUE_LIST_CONTROL_DEFAULT_REPROMPT_INVALID_VALUE_WITH_REASON:
                 "Sorry, {{value}} can't be added as {{reason}}.",
             MULTI_VALUE_LIST_CONTROL_DEFAULT_REPROMPT_UNUSABLE_INPUT_VALUE:
@@ -217,6 +225,8 @@ export const defaultI18nResources: Resource = {
                 'What should I change it to? Some suggestions are {{suggestions}}.',
             MULTI_VALUE_LIST_CONTROL_DEFAULT_REPROMPT_REQUEST_REMOVED_VALUE:
                 'What value do you want to remove? Some suggestions are {{suggestions}}.',
+            MULTI_VALUE_LIST_CONTROL_DEFAULT_REPROMPT_GENERAL_REQUEST_REMOVED_VALUE:
+                'What value do you want to remove?',
             MULTI_VALUE_LIST_CONTROL_DEFAULT_REPROMPT_CONFIRM_VALUE: 'Ok I have {{value}}. Is that all?',
             MULTI_VALUE_LIST_CONTROL_DEFAULT_REPROMPT_VALUE_AFFIRMED: 'Great.',
             MULTI_VALUE_LIST_CONTROL_DEFAULT_REPROMPT_VALUE_DISAFFIRMED: 'My mistake.',

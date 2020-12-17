@@ -11,6 +11,7 @@
  * permissions and limitations under the License.
  */
 
+import { expect } from 'chai';
 import { suite, test } from 'mocha';
 import {
     MultiValueListControl,
@@ -21,6 +22,7 @@ import { Strings as $ } from '../../src/constants/Strings';
 import { Control } from '../../src/controls/Control';
 import { ControlManager } from '../../src/controls/ControlManager';
 import { AmazonIntent } from '../../src/intents/AmazonBuiltInIntent';
+import { GeneralControlIntent } from '../../src/intents/GeneralControlIntent';
 import { MultiValueControlIntent } from '../../src/intents/MultiValueControlIntent';
 import { ControlHandler } from '../../src/runtime/ControlHandler';
 import { IntentBuilder } from '../../src/utils/IntentUtils';
@@ -82,6 +84,10 @@ suite('MultiValueListControl e2e tests', () => {
                 TestInput.of(IntentBuilder.of(AmazonIntent.YesIntent)),
                 'A: Great.',
             ]);
+
+            expect(requestHandler.getSerializableControlStates().apple.value).deep.equals([
+                { id: 'iPhone', erMatch: false },
+            ]);
         });
 
         test('Add multiple items invalid values, elicit a value for control', async () => {
@@ -96,6 +102,8 @@ suite('MultiValueListControl e2e tests', () => {
                 ),
                 "A:  Sorry, iPod and iPac can't be added as item is not available in the product list. What is your selection? Some suggestions are AirPods, iWatch or iPhone.",
             ]);
+
+            expect(requestHandler.getSerializableControlStates().apple.value === undefined);
         });
 
         test('Bare values support', async () => {
@@ -116,6 +124,10 @@ suite('MultiValueListControl e2e tests', () => {
                 TestInput.of(IntentBuilder.of(AmazonIntent.YesIntent)),
                 'A: Great.',
             ]);
+            expect(requestHandler.getSerializableControlStates().apple.value).deep.equals([
+                { id: 'iPhone', erMatch: false },
+                { id: 'iPad', erMatch: false },
+            ]);
         });
 
         test('Negative prompts and removal of items', async () => {
@@ -131,26 +143,85 @@ suite('MultiValueListControl e2e tests', () => {
                 'A: OK, added iPhone and AirPods. Is that all?',
                 'U: No',
                 TestInput.of(IntentBuilder.of(AmazonIntent.NoIntent)),
-                'A: You can add or update more values',
-                'U: remove iPods',
+                'A: You can add new values or update existing values',
+                'U: Remove iPods and AirPods',
                 TestInput.of(
                     MultiValueControlIntent.of('AppleSuite', {
-                        AppleSuite: 'iPods',
+                        AppleSuite: ['iPods', 'AirPods'],
                         action: $.Action.Remove,
                     }),
                 ),
-                "A: Sorry, iPods can't be added it doesn't exist. What value do you want to remove? Some suggestions are iPhone or AirPods.",
-                'U: remove AirPods',
+                'A: OK, removed AirPods. Sorry, iPods is not in the list. What value do you want to remove? Some suggestions are iPhone.',
+                'U: Remove iPhone',
                 TestInput.of(
                     MultiValueControlIntent.of('AppleSuite', {
-                        AppleSuite: 'AirPods',
+                        AppleSuite: 'iPhone',
                         action: $.Action.Remove,
                     }),
                 ),
-                'A: OK, removed AirPods. Is that all?',
-                'U: Yes',
-                TestInput.of(IntentBuilder.of(AmazonIntent.YesIntent)),
-                'A: Great.',
+                'A: OK, removed iPhone. What is your selection? Some suggestions are AirPods, iWatch or iPhone.',
+            ]);
+
+            expect(requestHandler.getSerializableControlStates().apple.value === undefined);
+        });
+
+        test('Remove all items from cart', async () => {
+            const requestHandler = new ControlHandler(new CategorySuiteManager());
+            await testE2E(requestHandler, [
+                'U: add iPhone and iPad',
+                TestInput.of(
+                    MultiValueControlIntent.of('AppleSuite', {
+                        AppleSuite: ['iPhone', 'iPad'],
+                        action: $.Action.Add,
+                    }),
+                ),
+                'A: OK, added iPhone and iPad. Is that all?',
+                'U: AirPods',
+                TestInput.of(MultiValueControlIntent.of('AppleSuite', { AppleSuite: 'AirPods' })),
+                'A: OK, added AirPods. Is that all?',
+                'U: Clear all items from cart',
+                TestInput.of(GeneralControlIntent.of({ action: $.Action.Clear })),
+                'A: OK, removed all iPhone, iPad and AirPods. What is your selection? Some suggestions are AirPods, iWatch or iPhone.',
+                'U: Remove iPhone',
+                TestInput.of(
+                    MultiValueControlIntent.of('AppleSuite', {
+                        AppleSuite: 'iPhone',
+                        action: $.Action.Remove,
+                    }),
+                ),
+                'A: Sorry, iPhone is not in the list. What value do you want to remove?',
+            ]);
+
+            expect(requestHandler.getSerializableControlStates().apple.value === undefined);
+        });
+
+        test('Duplicate value scenarios', async () => {
+            const requestHandler = new ControlHandler(new CategorySuiteManager());
+            await testE2E(requestHandler, [
+                'U: add iPhone and iPhone',
+                TestInput.of(
+                    MultiValueControlIntent.of('AppleSuite', {
+                        AppleSuite: ['iPhone', 'iPhone'],
+                        action: $.Action.Add,
+                    }),
+                ),
+                'A: OK, added iPhone and iPhone. Is that all?',
+                'U: iPhone',
+                TestInput.of(MultiValueControlIntent.of('AppleSuite', { AppleSuite: 'iPhone' })),
+                'A: OK, added iPhone. Is that all?',
+                'U: Remove iPhone',
+                TestInput.of(
+                    MultiValueControlIntent.of('AppleSuite', {
+                        AppleSuite: 'iPhone',
+                        action: $.Action.Remove,
+                    }),
+                ),
+                'A: OK, removed iPhone. Is that all?',
+            ]);
+
+            expect(requestHandler.getSerializableControlStates().apple.value).deep.equals([
+                { id: 'iPhone', erMatch: false },
+                { id: 'iPhone', erMatch: false },
             ]);
         });
     });
