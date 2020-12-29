@@ -75,6 +75,10 @@ export function unpackMultiValueControlIntent(intent: Intent): MultiValuePayload
             slotValue = Array.isArray(slotObject) ? slotObject : [slotObject];
         }
 
+        if (name === '__Conjunction')
+            // Handle MVS conjunction
+            continue;
+
         switch (name) {
             case 'action':
                 action = slotValue !== undefined ? slotValue[0].slotValue : undefined;

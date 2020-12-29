@@ -182,7 +182,8 @@ export const defaultI18nResources: Resource = {
             MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_VALUE_CHANGED: 'OK, I changed it to {{value}}.',
             MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_VALUE_ADD: 'OK, added {{value}}.',
             MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_VALUE_REMOVE: 'OK, removed {{value}}.',
-            MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_VALUE_CLEARED: 'OK, removed all {{value}}.',
+            MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_VALUE_CLEARED:
+                'OK, removed the following {{value}} from the list.',
             MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_ACTION_SUGGEST:
                 'You can add new values or update existing values',
             MULTI_VALUE_LIST_CONTROL_DEFAULT_PROMPT_GENERAL_INVALID_VALUE:
@@ -208,7 +209,8 @@ export const defaultI18nResources: Resource = {
             MULTI_VALUE_LIST_CONTROL_DEFAULT_REPROMPT_VALUE_CHANGED: 'OK, I changed it to {{value}}.',
             MULTI_VALUE_LIST_CONTROL_DEFAULT_REPROMPT_VALUE_ADD: 'OK, added {{value}}.',
             MULTI_VALUE_LIST_CONTROL_DEFAULT_REPROMPT_VALUE_REMOVE: 'OK, removed {{value}}.',
-            MULTI_VALUE_LIST_CONTROL_DEFAULT_REPROMPT_VALUE_CLEARED: 'OK, removed all {{value}}.',
+            MULTI_VALUE_LIST_CONTROL_DEFAULT_REPROMPT_VALUE_CLEARED:
+                'OK, removed the following {{value}} from the list.',
             MULTI_VALUE_LIST_CONTROL_DEFAULT_REPROMPT_ACTION_SUGGEST:
                 'You can add new values or update existing values',
             MULTI_VALUE_LIST_CONTROL_DEFAULT_REPROMPT_GENERAL_INVALID_VALUE:
@@ -1013,6 +1015,41 @@ export const defaultI18nResources: Resource = {
                         name: {
                             value: 'resume',
                             synonyms: ['continue'],
+                        },
+                    },
+                    {
+                        id: $.Action.Add,
+                        name: {
+                            value: 'add',
+                            synonyms: ['add'],
+                        },
+                    },
+                    {
+                        id: $.Action.Remove,
+                        name: {
+                            value: 'remove',
+                            synonyms: ['remove', 'delete'],
+                        },
+                    },
+                    {
+                        id: $.Action.Clear,
+                        name: {
+                            value: 'clear',
+                            synonyms: ['remove all', 'clear'],
+                        },
+                    },
+                    {
+                        id: $.Action.Delete,
+                        name: {
+                            value: 'delete',
+                            synonyms: ['delete'],
+                        },
+                    },
+                    {
+                        id: $.Action.Ignore,
+                        name: {
+                            value: 'ignore',
+                            synonyms: ['ignore'],
                         },
                     },
                 ],

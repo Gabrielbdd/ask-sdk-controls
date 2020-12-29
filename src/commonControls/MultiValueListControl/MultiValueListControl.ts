@@ -1088,33 +1088,29 @@ export class MultiValueListControl extends Control implements InteractionModelCo
     // tsDoc - see Control
     updateInteractionModel(generator: ControlInteractionModelGenerator, imData: ModelData) {
         generator.addControlIntent(new GeneralControlIntent(), imData);
-        generator.addControlIntent(
-            new MultiValueControlIntent(
-                this.props.slotType,
-                this.props.interactionModel.slotValueConflictExtensions.filteredSlotType,
-            ),
-            imData,
-        );
-        generator.addControlIntent(new OrdinalControlIntent(), imData);
+
+        if (this.props.slotType !== 'dummy') {
+            generator.addControlIntent(
+                new MultiValueControlIntent(
+                    this.props.slotType,
+                    this.props.interactionModel.slotValueConflictExtensions.filteredSlotType,
+                ),
+                imData,
+            );
+        }
         generator.addYesAndNoIntents();
 
-        if (this.props.interactionModel.targets.includes($.Target.Choice)) {
-            generator.addValuesToSlotType(
-                SharedSlotType.TARGET,
-                i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_SLOT_VALUES_TARGET_CHOICE', {
-                    returnObjects: true,
-                }),
-            );
+        generator.ensureSlotIsDefined(this.id, this.props.slotType);
+        generator.ensureSlotIsNoneOrDefined(
+            this.id,
+            this.props.interactionModel.slotValueConflictExtensions.filteredSlotType,
+        );
+
+        for (const [capability, actionSlotIds] of Object.entries(this.props.interactionModel.actions)) {
+            generator.ensureSlotValueIDsAreDefined(this.id, 'action', actionSlotIds);
         }
 
-        if (this.props.interactionModel.actions.add.includes($.Action.Select)) {
-            generator.addValuesToSlotType(
-                SharedSlotType.ACTION,
-                i18next.t('MULTI_VALUE_LIST_CONTROL_DEFAULT_SLOT_VALUES_ACTION_SELECT', {
-                    returnObjects: true,
-                }),
-            );
-        }
+        generator.ensureSlotValueIDsAreDefined(this.id, 'target', this.props.interactionModel.targets);
     }
 
     // tsDoc - see InteractionModelContributor
