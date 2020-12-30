@@ -129,7 +129,11 @@ export namespace InputUtil {
      * @param controlId - the expected control ID
      * @param argLength - the expected argument length
      */
-    export function isAPLUserEventWithMatchingControlIdAndArgLength(input: ControlInput, controlId: string, argLength: number): boolean {
+    export function isAPLUserEventWithMatchingControlIdAndArgLength(
+        input: ControlInput,
+        controlId: string,
+        argLength: number,
+    ): boolean {
         return (
             isAPLUserEventWithMatchingControlId(input, controlId) &&
             (input.request as interfaces.alexa.presentation.apl.UserEvent).arguments!.length === argLength

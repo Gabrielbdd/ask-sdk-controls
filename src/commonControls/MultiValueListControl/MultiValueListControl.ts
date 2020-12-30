@@ -15,7 +15,14 @@ import { Intent, IntentRequest } from 'ask-sdk-model';
 import i18next from 'i18next';
 import _ from 'lodash';
 import { Strings as $ } from '../../constants/Strings';
-import { Control, ControlInputHandlingProps, ControlProps, ControlState } from '../../controls/Control';
+import {
+    Control,
+    ControlInitiativeHandler,
+    ControlInputHandler,
+    ControlInputHandlingProps,
+    ControlProps,
+    ControlState,
+} from '../../controls/Control';
 import { ControlAPL } from '../../controls/ControlAPL';
 import { ControlInput } from '../../controls/ControlInput';
 import { ControlResultBuilder } from '../../controls/ControlResult';
@@ -27,9 +34,8 @@ import {
     MultiValueSlot,
     unpackMultiValueControlIntent,
 } from '../../intents/MultiValueControlIntent';
-import { OrdinalControlIntent } from '../../intents/OrdinalControlIntent';
 import { ControlInteractionModelGenerator } from '../../interactionModelGeneration/ControlInteractionModelGenerator';
-import { ModelData, SharedSlotType } from '../../interactionModelGeneration/ModelTypes';
+import { ModelData } from '../../interactionModelGeneration/ModelTypes';
 import { ListFormatting } from '../../intl/ListFormat';
 import { Logger } from '../../logging/Logger';
 import { ControlResponseBuilder } from '../../responseGeneration/ControlResponseBuilder';
@@ -49,7 +55,7 @@ import {
 } from '../../systemActs/InitiativeActs';
 import { SystemAct } from '../../systemActs/SystemAct';
 import { StringOrList } from '../../utils/BasicTypes';
-import { evaluateCustomHandleFuncs, _logIfBothTrue } from '../../utils/ControlUtils';
+import { _logIfBothTrue } from '../../utils/ControlUtils';
 import { DeepRequired } from '../../utils/DeepRequired';
 import { InputUtil } from '../../utils/InputUtil';
 import { falseIfGuardFailed, okIf } from '../../utils/Predicates';
@@ -67,6 +73,9 @@ export type MultiValueValidationResult = {
      */
     renderedReason: string;
 
+    /**
+     * A list of values which fails validation.
+     */
     invalidValues: string[];
 };
 
@@ -172,7 +181,7 @@ export interface MultiValueListControlProps extends ControlProps {
 export type SlotValidationFunction = (
     values: MultiValueListStateValue[],
     input: ControlInput,
-) => true | MultiValueValidationResult;
+) => true | MultiValueValidationResult | Promise<true | MultiValueValidationResult>;
 
 /**
  * Mapping of action slot values to the behaviors that this control supports.
@@ -366,7 +375,14 @@ export type MultiValueListStateValue = {
 };
 
 export type LastInitiativeState = {
+    /**
+     * Tracks the last act initiated from the control.
+     */
     actName: string;
+
+    /**
+     * A list of values which are used in last initiative act.
+     */
     valueIds: string[];
 };
 
@@ -452,7 +468,6 @@ export class MultiValueListControl extends Control implements InteractionModelCo
 
     constructor(props: MultiValueListControlProps) {
         super(props.id);
-
         if (props.slotType === AmazonBuiltInSlotType.SEARCH_QUERY) {
             throw new Error(
                 'AMAZON.SearchQuery cannot be used with MultiValueListControl due to the special rules regarding its use. ' +
@@ -460,8 +475,11 @@ export class MultiValueListControl extends Control implements InteractionModelCo
                     'Use a custom intent to manage SearchQuery slots or create a regular slot for use with MultiValueListControl.',
             );
         }
-
         this.props = MultiValueListControl.mergeWithDefaultProps(props);
+        if (this.props.interactionModel.slotValueConflictExtensions.filteredSlotType === 'dummy') {
+            this.props.interactionModel.slotValueConflictExtensions.filteredSlotType = this.props.slotType;
+        }
+        this.state.value = [];
     }
 
     /**
@@ -612,18 +630,58 @@ export class MultiValueListControl extends Control implements InteractionModelCo
         return _.merge(defaults, props);
     }
 
+    standardInputHandlers: ControlInputHandler[] = [
+        {
+            name: 'AddWithValue (builtin)',
+            canHandle: this.isAddWithValue,
+            handle: this.handleAddWithValue,
+        },
+        {
+            name: 'RemoveWithValue (builtin)',
+            canHandle: this.isRemoveWithValue,
+            handle: this.handleRemoveWithValue,
+        },
+        {
+            name: 'ClearValue (builtin)',
+            canHandle: this.isClearValue,
+            handle: this.handleClearValue,
+        },
+        {
+            name: 'ConfirmationAffirmed (builtin)',
+            canHandle: this.isConfirmationAffirmed,
+            handle: this.handleConfirmationAffirmed,
+        },
+        {
+            name: 'ConfirmationDisaffirmed (builtin)',
+            canHandle: this.isConfirmationDisaffirmed,
+            handle: this.handleConfirmationDisaffirmed,
+        },
+    ];
     // tsDoc - see Control
     async canHandle(input: ControlInput): Promise<boolean> {
-        const customCanHandle = await evaluateCustomHandleFuncs(this, input);
-        const builtInCanHandle: boolean =
-            this.isAddWithValue(input) ||
-            this.isRemoveWithValue(input) ||
-            this.isClearValue(input) ||
-            this.isConfirmationAffirmed(input) ||
-            this.isConfirmationDisaffirmed(input);
+        const stdHandlers = this.standardInputHandlers;
+        const customHandlers = this.props.inputHandling.customHandlingFuncs ?? [];
 
-        _logIfBothTrue(customCanHandle, builtInCanHandle);
-        return customCanHandle || builtInCanHandle;
+        const matches = [];
+        for (const handler of stdHandlers.concat(customHandlers)) {
+            if (await handler.canHandle.call(this, input)) {
+                matches.push(handler);
+            }
+        }
+
+        if (matches.length > 1) {
+            log.error(
+                `More than one handler matched. Handlers in a single control should be mutually exclusive. ` +
+                    `Defaulting to the first. handlers: ${JSON.stringify(matches.map((x) => x.name))}`,
+            );
+        }
+
+        if (matches.length >= 1) {
+            this.handleFunc = matches[0].handle.bind(this);
+            return true;
+        } else {
+            return false;
+        }
     }
 
     // tsDoc - see Control
@@ -638,7 +696,7 @@ export class MultiValueListControl extends Control implements InteractionModelCo
 
         this.props.required = true;
         await this.handleFunc(input, resultBuilder);
-        if (resultBuilder.hasInitiativeAct() !== true && this.canTakeInitiative(input) === true) {
+        if (resultBuilder.hasInitiativeAct() !== true && (await this.canTakeInitiative(input)) === true) {
             await this.takeInitiative(input, resultBuilder);
         }
     }
@@ -650,21 +708,20 @@ export class MultiValueListControl extends Control implements InteractionModelCo
                 (input.request as IntentRequest).intent,
             );
             okIf(InputUtil.targetIsMatchOrUndefined(target, this.props.interactionModel.targets));
-            okIf(InputUtil.valueTypeMatch(valueType, this.props.slotType));
+            okIf(InputUtil.valueTypeMatch(valueType, this.getSlotTypes()));
             okIf(InputUtil.valueStrDefined(values));
             okIf(InputUtil.feedbackIsMatchOrUndefined(feedback, [$.Feedback.Affirm, $.Feedback.Disaffirm]));
             okIf(InputUtil.actionIsMatchOrUndefined(action, this.props.interactionModel.actions.add));
-            this.handleFunc = this.handleAddWithValue;
             return true;
         } catch (e) {
             return falseIfGuardFailed(e);
         }
     }
 
-    private handleAddWithValue(input: ControlInput, resultBuilder: ControlResultBuilder) {
+    private async handleAddWithValue(input: ControlInput, resultBuilder: ControlResultBuilder) {
         const slotValues = InputUtil.getMultiValueResolution(input);
         let values = this.generateSlotValues(slotValues);
-        const validationResult = this.validate(values, input);
+        const validationResult = await this.validate(values, input);
         const valueIds: string[] = [];
 
         if (validationResult !== true) {
@@ -704,11 +761,10 @@ export class MultiValueListControl extends Control implements InteractionModelCo
                 (input.request as IntentRequest).intent,
             );
             okIf(InputUtil.targetIsMatchOrUndefined(target, this.props.interactionModel.targets));
-            okIf(InputUtil.valueTypeMatch(valueType, this.props.slotType));
+            okIf(InputUtil.valueTypeMatch(valueType, this.getSlotTypes()));
             okIf(InputUtil.valueStrDefined(values));
             okIf(InputUtil.feedbackIsMatchOrUndefined(feedback, [$.Feedback.Affirm, $.Feedback.Disaffirm]));
             okIf(InputUtil.actionIsMatch(action, this.props.interactionModel.actions.remove));
-            this.handleFunc = this.handleRemoveWithValue;
             return true;
         } catch (e) {
             return falseIfGuardFailed(e);
@@ -768,7 +824,6 @@ export class MultiValueListControl extends Control implements InteractionModelCo
         try {
             okIf(InputUtil.isBareYes(input));
             okIf(InputUtil.lastInitiativeMatch(this.state.lastInitiative, ConfirmValueAct.name));
-            this.handleFunc = this.handleConfirmationAffirmed;
             return true;
         } catch (e) {
             return falseIfGuardFailed(e);
@@ -794,7 +849,6 @@ export class MultiValueListControl extends Control implements InteractionModelCo
         try {
             okIf(InputUtil.isBareNo(input));
             okIf(InputUtil.lastInitiativeMatch(this.state.lastInitiative, ConfirmValueAct.name));
-            this.handleFunc = this.handleConfirmationDisaffirmed;
             return true;
         } catch (e) {
             return falseIfGuardFailed(e);
@@ -816,7 +870,6 @@ export class MultiValueListControl extends Control implements InteractionModelCo
             okIf(InputUtil.feedbackIsMatchOrUndefined(feedback, [$.Feedback.Affirm, $.Feedback.Disaffirm]));
             okIf(InputUtil.actionIsMatch(action, this.props.interactionModel.actions.clear));
             okIf(InputUtil.targetIsMatchOrUndefined(target, this.props.interactionModel.targets));
-            this.handleFunc = this.handleClearValue;
             return true;
         } catch (e) {
             return falseIfGuardFailed(e);
@@ -855,9 +908,44 @@ export class MultiValueListControl extends Control implements InteractionModelCo
         this.state = new MultiValueListControlState();
     }
 
+    standardInitiativeHandlers: ControlInitiativeHandler[] = [
+        {
+            name: 'std::confirmValue',
+            canTakeInitiative: this.wantsToConfirmValue,
+            takeInitiative: this.confirmValue,
+        },
+        {
+            name: 'std:elicitValue',
+            canTakeInitiative: this.wantsToElicitValue,
+            takeInitiative: this.elicitValue,
+        },
+    ];
     // tsDoc - see Control
-    canTakeInitiative(input: ControlInput): boolean {
-        return this.wantsToConfirmValue(input) || this.wantsToElicitValue(input);
+    async canTakeInitiative(input: ControlInput): Promise<boolean> {
+        const stdHandlers = this.standardInitiativeHandlers;
+
+        const matches = [];
+        for (const handler of stdHandlers) {
+            if (await handler.canTakeInitiative.call(this, input)) {
+                matches.push(handler);
+            }
+        }
+
+        if (matches.length > 1) {
+            log.error(
+                `More than one handler matched. Initiaitive Handlers in a single control should be mutually exclusive. ` +
+                    `Defaulting to the first. Initiative handlers: ${JSON.stringify(
+                        matches.map((x) => x.name),
+                    )}`,
+            );
+        }
+
+        if (matches.length >= 1) {
+            this.initiativeFunc = matches[0].takeInitiative.bind(this);
+            return true;
+        } else {
+            return false;
+        }
     }
 
     // tsDoc - see Control
@@ -868,7 +956,7 @@ export class MultiValueListControl extends Control implements InteractionModelCo
             log.error(errorMsg);
             throw new Error(errorMsg);
         }
-        this.initiativeFunc(input, resultBuilder);
+        await this.initiativeFunc(input, resultBuilder);
         return;
     }
 
@@ -879,7 +967,6 @@ export class MultiValueListControl extends Control implements InteractionModelCo
             this.state.value.length !== 0 &&
             this.state.confirmed !== true
         ) {
-            this.initiativeFunc = this.confirmValue;
             return true;
         }
         return false;
@@ -905,7 +992,6 @@ export class MultiValueListControl extends Control implements InteractionModelCo
                 (this.state.value !== undefined && this.state.value.length === 0)) &&
             this.evaluateBooleanProp(this.props.required, input)
         ) {
-            this.initiativeFunc = this.elicitValue;
             return true;
         }
         return false;
@@ -915,11 +1001,14 @@ export class MultiValueListControl extends Control implements InteractionModelCo
         this.askElicitationQuestion(input, resultBuilder, $.Action.Add);
     }
 
-    private validate(values: MultiValueListStateValue[], input: ControlInput) {
+    private async validate(values: MultiValueListStateValue[], input: ControlInput) {
         const listOfValidationFunc: SlotValidationFunction[] =
             typeof this.props.validation === 'function' ? [this.props.validation] : this.props.validation;
         for (const validationFunction of listOfValidationFunc) {
-            const validationResult: true | MultiValueValidationResult = validationFunction(values, input);
+            const validationResult: true | MultiValueValidationResult = await validationFunction(
+                values,
+                input,
+            );
             if (validationResult !== true) {
                 log.debug(
                     `MultiValueListControl.validate(): validation failed. Reason: ${JSON.stringify(
@@ -1106,7 +1195,7 @@ export class MultiValueListControl extends Control implements InteractionModelCo
             this.props.interactionModel.slotValueConflictExtensions.filteredSlotType,
         );
 
-        for (const [capability, actionSlotIds] of Object.entries(this.props.interactionModel.actions)) {
+        for (const [, actionSlotIds] of Object.entries(this.props.interactionModel.actions)) {
             generator.ensureSlotValueIDsAreDefined(this.id, 'action', actionSlotIds);
         }
 
@@ -1119,7 +1208,7 @@ export class MultiValueListControl extends Control implements InteractionModelCo
     }
     // TODO: feature: use slot elicitation when requesting.
 
-    private evaluateRenderedValue(value: string | string[], input: ControlInput): string {
+    private evaluateRenderedValue(value: StringOrList, input: ControlInput): string {
         const renderedValue = Array.isArray(value) ? value : [value];
         return ListFormatting.format(this.props.valueRenderer(renderedValue, input), 'and');
     }
@@ -1129,6 +1218,13 @@ export class MultiValueListControl extends Control implements InteractionModelCo
             return this.state.value.map(({ id }) => id);
         }
         return [];
+    }
+
+    private getSlotTypes(): string[] {
+        return [
+            this.props.slotType,
+            this.props.interactionModel.slotValueConflictExtensions.filteredSlotType,
+        ];
     }
 
     private generateSlotValues(values: MultiValueSlot[]): MultiValueListStateValue[] {
